@@ -26,13 +26,14 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void GetLedConfig(int ledIndex, GPIO_TypeDef **port, uint16_t *pin);
-/* USER CODE BEGIN PFP */
+void Endgame(void);
+void ShowPoints(int points[2]);
 
+/* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -42,172 +43,176 @@ void GetLedConfig(int ledIndex, GPIO_TypeDef **port, uint16_t *pin);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  int x=0;
-  int ledCount = 8; // Total number of LEDs connected
-  int delayTime = 500;
-  int reduceTime=0;
-  int points[1]={0,0};
-  bool point = false;
-  /* USER CODE BEGIN 2 */
 
-  /* USER CODE END 2 */
+  int x = 0;
+  int ledCount = 8;       // Total number of LEDs connected
+  int delayTime = 200;
+  int reduceTime = 0;
+  int points[2] = {0, 0}; // Corrected to hold two values
+  bool point = false;
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
-      {
-          // Forward LED sequence
-          for (int i = 0; i < ledCount; i++)
-          {
+  {
+      if (reduceTime == 0) {
+          for (int i = 1; i < ledCount; i++) {
               GPIO_TypeDef *currentPort;
               uint16_t currentPin;
               GetLedConfig(i, &currentPort, &currentPin);
-
-              HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-              HAL_Delay(delayTime - reduceTime);
               HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
           }
+          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+          HAL_Delay(delayTime - reduceTime);
+          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+      }
 
-          point = true;
-          for (int i = 0; i <= delayTime - reduceTime; i++)
-          {
-              HAL_Delay(1);
-              if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_8) == GPIO_PIN_SET)
-              {
-                  point = false;
-                  break;
-              }
-          }
-          if (point)
-          {
-        	  if(points[0]>4){
-        		  for (int i = ledCount - 1; i >= 0; i--)
-				   {
-					   GPIO_TypeDef *currentPort;
-					   uint16_t currentPin;
-					   GetLedConfig(i, &currentPort, &currentPin);
-					   HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-				   }
-        		  HAL_Delay(1000);
-        		  for (int i = ledCount - 1; i >= 0; i--)
-				   {
-					   GPIO_TypeDef *currentPort;
-					   uint16_t currentPin;
-					   GetLedConfig(i, &currentPort, &currentPin);
-					   HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
-				   }
-        		  HAL_Delay(1000);
+      // Forward LED sequence
+      for (int i = 1; i < ledCount - 1; i++) {
+          GPIO_TypeDef *currentPort;
+          uint16_t currentPin;
+          GetLedConfig(i, &currentPort, &currentPin);
+          HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+          HAL_Delay(delayTime - reduceTime);
+          HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
+      }
 
-		  }
-              reduceTime = 0;
-              continue;
-          }
-
-          // Reverse LED sequence
-          for (int i = ledCount - 1; i >= 0; i--)
-          {
-              GPIO_TypeDef *currentPort;
-              uint16_t currentPin;
-              GetLedConfig(i, &currentPort, &currentPin);
-
-              HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-              HAL_Delay(delayTime - reduceTime);
-              HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
-          }
-
-          point = true;
-          for (int i = 0; i <= delayTime - reduceTime; i++)
-          {
-              HAL_Delay(1);
-              if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15) == GPIO_PIN_SET)
-              {
-                  point = false;
-                  break;
-              }
-          }
-          if (point)
-          {
-              reduceTime = 0;
-              continue;
-          }
-
-          if (delayTime - reduceTime > 20)
-          {
-              reduceTime += 10;
+      // Forward endpoint action
+      HAL_GPIO_WritePin(LED8_GPIO_Port, LED8_Pin, GPIO_PIN_SET);
+      point = true;
+      for (int i = 0; i <= (delayTime - reduceTime) * 10; i++) {
+          HAL_Delay(1);
+          if (HAL_GPIO_ReadPin(R_button_GPIO_Port, R_button_Pin) == GPIO_PIN_RESET) {
+              point = false;
+              break;
           }
       }
+      HAL_GPIO_WritePin(LED8_GPIO_Port, LED8_Pin, GPIO_PIN_RESET);
+
+      if (point) {
+
+                points[0]++;
+                if(points[0]>=4){
+              	  ShowPoints(points);
+              	  points[0]=0;
+              	  points[1]=0;
+              	  ShowPoints(points);
+                }else{
+              	ShowPoints(points);
+                }
+                reduceTime = 0;
+                Endgame();
+                continue;
+            }
+
+      // Reverse LED sequence
+      for (int i = ledCount - 2; i >= 1; i--) {
+          GPIO_TypeDef *currentPort;
+          uint16_t currentPin;
+          GetLedConfig(i, &currentPort, &currentPin);
+          HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+          HAL_Delay(delayTime - reduceTime);
+          HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
+      }
+
+      // Reverse endpoint action
+      HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+      point = true;
+      for (int i = 0; i <= (delayTime - reduceTime) * 10; i++) {
+          HAL_Delay(1);
+          if (HAL_GPIO_ReadPin(L_button_GPIO_Port, L_button_Pin) == GPIO_PIN_RESET) {
+              point = false;
+              break;
+          }
+      }
+      HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+
+      if (point) {
+
+          points[1]++;
+          if(points[1]>=4){
+        	  ShowPoints(points);
+        	  points[0]=0;
+        	  points[1]=0;
+        	  ShowPoints(points);
+          }else{
+        	ShowPoints(points);
+          }
+          reduceTime = 0;
+          Endgame();
+          continue;
+      }
+
+      // Increase speed gradually
+      if (delayTime - reduceTime > 40) {
+          reduceTime += 20;
+      }else if (delayTime - reduceTime > 20) {
+                reduceTime += 10;
+      }else if (delayTime - reduceTime > 5) {
+          reduceTime += 2;
+      }
+  }
+}
+
+void Endgame(void)
+{
+    for (int i = 0; i < 8; i++) {
+        GPIO_TypeDef *currentPort;
+        uint16_t currentPin;
+        GetLedConfig(i, &currentPort, &currentPin);
+        HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+    }
+    while (1) {
+        if (HAL_GPIO_ReadPin(R_button_GPIO_Port, R_button_Pin) == GPIO_PIN_RESET &&
+            HAL_GPIO_ReadPin(L_button_GPIO_Port, L_button_Pin) == GPIO_PIN_RESET) {
+            break;
+        }
+        HAL_Delay(10);
+    }
+}
+
+void ShowPoints(int points[2])
+{
+    for (int i = 0; i < points[0]; i++) {
+        GPIO_TypeDef *currentPort;
+        uint16_t currentPin;
+        GetLedConfig(i, &currentPort, &currentPin);
+        HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+    }
+    for (int i = 8; i > 8-points[1]; i++) {
+            GPIO_TypeDef *currentPort;
+            uint16_t currentPin;
+            GetLedConfig(i, &currentPort, &currentPin);
+            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+        }
+    HAL_Delay(2000);
 }
 
 void GetLedConfig(int ledIndex, GPIO_TypeDef **port, uint16_t *pin)
 {
     switch (ledIndex)
     {
-        case 0:
-            *port = GPIOB;
-            *pin = GPIO_PIN_1;
-            break;
-        case 1:
-            *port = GPIOB;
-            *pin = GPIO_PIN_2;
-            break;
-        case 2:
-            *port = GPIOB;
-            *pin = GPIO_PIN_11;
-            break;
-        case 3:
-            *port = GPIOB;
-            *pin = GPIO_PIN_12;
-            break;
-        case 4:
-            *port = GPIOA;
-            *pin = GPIO_PIN_11;
-            break;
-        case 5:
-            *port = GPIOA;
-            *pin = GPIO_PIN_12;
-            break;
-        case 6:
-            *port = GPIOC;
-            *pin = GPIO_PIN_5;
-            break;
-        case 7:
-            *port = GPIOC;
-            *pin = GPIO_PIN_6;
-            break;
-        default:
-            *port = NULL;
-            *pin = 0;
-            break;
+        case 0: *port = GPIOB; *pin = GPIO_PIN_1; break;
+        case 1: *port = GPIOB; *pin = GPIO_PIN_2; break;
+        case 2: *port = GPIOB; *pin = GPIO_PIN_11; break;
+        case 3: *port = GPIOB; *pin = GPIO_PIN_12; break;
+        case 4: *port = GPIOA; *pin = GPIO_PIN_11; break;
+        case 5: *port = GPIOA; *pin = GPIO_PIN_12; break;
+        case 6: *port = GPIOC; *pin = GPIO_PIN_5; break;
+        case 7: *port = GPIOC; *pin = GPIO_PIN_6; break;
+        default: *port = NULL; *pin = 0; break;
     }
 }
-
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
