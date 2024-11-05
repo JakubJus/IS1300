@@ -6,9 +6,6 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
   * This software component is licensed by ST under BSD 3-Clause license,
   * the "License"; You may not use this file except in compliance with the
   * License. You may obtain a copy of the License at:
@@ -17,6 +14,7 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
+
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "usart.h"
@@ -25,138 +23,148 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void GetLedConfig(int ledIndex, GPIO_TypeDef **port, uint16_t *pin);
-void Endgame(void);
-void HandlePoint(int points[2],int placement,int* reduceTime);
-void ShowPoints(int points[2]);
-int isPressed();
-int RunLedSequence(int ledCount, int delayTime, int reduceTime, bool forward);
-void ResetLed(int ledCount);
-bool EndpointAction(GPIO_TypeDef *ledPort, uint16_t ledPin, GPIO_TypeDef *buttonPort, uint16_t buttonPin, int delayTime, int reduceTime);
-void IncreaseSpeed(int* reduceTime,int delayTime);
+void GetLedConfig(int ledIndex, GPIO_TypeDef **pLedPort, uint16_t *pLedPin);
+void EndGame(int playerScores[2]);
+void ShowPlayerScores(int playerScores[2]);
+int CheckButtonPress();
+int ExecuteLedSequence(int ledTotal, int delayDuration, int speedIncrease, bool sequenceForward);
+void ResetAllLeds(int ledTotal);
+bool PerformEndpointAction(GPIO_TypeDef *pLedPort, uint16_t ledPin, GPIO_TypeDef *pButtonPort, uint16_t buttonPin, int delayDuration, int speedIncrease);
+void IncrementSpeed(int* pSpeedIncrease, int delayDuration);
+void TurnOnAllLeds(int ledTotal);
+void ResetForNewRound(int ledTotal, GPIO_TypeDef *pStartPort, uint16_t startPin, int delayDuration, int speedIncrease);
+void UpdatePlayerScore(int playerScores[2], int currentScore, int* pSpeedIncrease, bool* pWaitToStart);
 
-/* USER CODE BEGIN PFP */
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
   HAL_Init();
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  int ledCount = 8;       // Total number of LEDs connected
-  int delayTime = 200;
-  int reduceTime = 0;
-  int points[2] = {0, 0}; // Corrected to hold two values
-  int test=0;
 
-  /* Infinite loop */
+  int ledTotal = 8;
+  int delayDuration = 200;
+  int speedIncrease = 0;
+  int playerScores[2] = {0, 0};
+  bool leftServe = true;
+  bool waitToStart = true;
+
   while (1)
   {
-	  test=0;
-      if (reduceTime == 0) {
-          ResetLed(ledCount);
-          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
-          HAL_Delay(delayTime - reduceTime);
-          HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+      if (playerScores[0] == 0 && playerScores[1] == 0 && waitToStart == true) {
+          while (1) {
+              waitToStart = false;
+              int serveReady = CheckButtonPress();
+              if (serveReady != 0) {
+                  leftServe = (serveReady == 2);
+                  break;
+              }
+              HAL_Delay(10);
+          }
       }
 
-      test = RunLedSequence(ledCount, delayTime, reduceTime, true);
-      if (test != 0 || EndpointAction(LED8_GPIO_Port, LED8_Pin, R_button_GPIO_Port, R_button_Pin, delayTime, reduceTime)) {
-          HandlePoint(points, (test != 0) ? test-1 : 0, &reduceTime);
+      ResetForNewRound(ledTotal, leftServe ? LED1_GPIO_Port : LED8_GPIO_Port, leftServe ? LED1_Pin : LED8_Pin, delayDuration, speedIncrease);
+
+      int currentState = ExecuteLedSequence(ledTotal, delayDuration, speedIncrease, leftServe);
+
+      if (currentState != 0 || PerformEndpointAction(leftServe ? LED8_GPIO_Port : LED1_GPIO_Port,
+                                                     leftServe ? LED8_Pin : LED1_Pin,
+                                                     leftServe ? R_button_GPIO_Port : L_button_GPIO_Port,
+                                                     leftServe ? R_button_Pin : L_button_Pin,
+                                                     delayDuration, speedIncrease)) {
+          leftServe = !leftServe;
+          UpdatePlayerScore(playerScores, (currentState != 0) ? currentState - 1 : 0, &speedIncrease, &waitToStart);
           continue;
       }
 
-      test = RunLedSequence(ledCount, delayTime, reduceTime, false);
-      if (test != 0 || EndpointAction(LED1_GPIO_Port, LED1_Pin, L_button_GPIO_Port, L_button_Pin, delayTime, reduceTime)) {
-    	  HandlePoint(points, (test != 0) ? test-1 : 1, &reduceTime);
-    	  continue;
+      currentState = ExecuteLedSequence(ledTotal, delayDuration, speedIncrease, !leftServe);
+
+      if (currentState != 0 || PerformEndpointAction(leftServe ? LED1_GPIO_Port : LED8_GPIO_Port,
+                                                     leftServe ? LED1_Pin : LED8_Pin,
+                                                     leftServe ? L_button_GPIO_Port : R_button_GPIO_Port,
+                                                     leftServe ? L_button_Pin : R_button_Pin,
+                                                     delayDuration, speedIncrease)) {
+          leftServe = !leftServe;
+          UpdatePlayerScore(playerScores, (currentState != 0) ? currentState - 1 : 1, &speedIncrease, &waitToStart);
+          continue;
       }
 
-      IncreaseSpeed(&reduceTime,delayTime);
-}
+      IncrementSpeed(&speedIncrease, delayDuration);
+  }
 }
 
-void IncreaseSpeed(int* reduceTime,int delayTime){
-	if (delayTime - *reduceTime > 40) {
-	          *reduceTime += 20;
-	      }else if (delayTime - *reduceTime > 20) {
-	                *reduceTime += 10;
-	      }else if (delayTime - *reduceTime > 5) {
-	          *reduceTime += 2;
-	      }
+void ResetForNewRound(int ledTotal, GPIO_TypeDef *pStartPort, uint16_t startPin, int delayDuration, int speedIncrease) {
+    ResetAllLeds(ledTotal);
+    HAL_GPIO_WritePin(pStartPort, startPin, GPIO_PIN_SET);
+    HAL_Delay(delayDuration - speedIncrease);
+    HAL_GPIO_WritePin(pStartPort, startPin, GPIO_PIN_RESET);
 }
-bool EndpointAction(GPIO_TypeDef *ledPort, uint16_t ledPin, GPIO_TypeDef *buttonPort, uint16_t buttonPin, int delayTime, int reduceTime) {
-    // Set the endpoint LED on
-    HAL_GPIO_WritePin(ledPort, ledPin, GPIO_PIN_SET);
 
-    // Loop for the delay duration or until button is pressed
-    for (int i = 0; i <= (delayTime - reduceTime)*10; i++) {
+void IncrementSpeed(int* pSpeedIncrease, int delayDuration) {
+    if (delayDuration - *pSpeedIncrease > 40) {
+        *pSpeedIncrease += 20;
+    } else if (delayDuration - *pSpeedIncrease > 20) {
+        *pSpeedIncrease += 10;
+    } else if (delayDuration - *pSpeedIncrease > 5) {
+        *pSpeedIncrease += 2;
+    }
+}
+
+bool PerformEndpointAction(GPIO_TypeDef *pLedPort, uint16_t ledPin, GPIO_TypeDef *pButtonPort, uint16_t buttonPin, int delayDuration, int speedIncrease) {
+    HAL_GPIO_WritePin(pLedPort, ledPin, GPIO_PIN_SET);
+
+    for (int i = 0; i <= (delayDuration - speedIncrease) * 10; i++) {
         HAL_Delay(1);
 
-        // Check if the button is pressed
-        if (HAL_GPIO_ReadPin(buttonPort, buttonPin) == GPIO_PIN_RESET) {
-            // Turn off the LED and return false if the button is pressed
-            while(1){
-            	if (HAL_GPIO_ReadPin(buttonPort, buttonPin) == GPIO_PIN_SET) {
-            		break;
-            	}
-            }
-            HAL_GPIO_WritePin(ledPort, ledPin, GPIO_PIN_RESET);
+        if (HAL_GPIO_ReadPin(pButtonPort, buttonPin) == GPIO_PIN_RESET) {
+            while (HAL_GPIO_ReadPin(pButtonPort, buttonPin) == GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(pLedPort, ledPin, GPIO_PIN_RESET);
             return false;
-
         }
     }
 
-    // Turn off the LED and return true if no button press was detected
-    HAL_GPIO_WritePin(ledPort, ledPin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(pLedPort, ledPin, GPIO_PIN_RESET);
     return true;
 }
 
-void ResetLed(int ledCount){
-	for (int i = 1; i < ledCount; i++) {
-	              GPIO_TypeDef *currentPort;
-	              uint16_t currentPin;
-	              GetLedConfig(i, &currentPort, &currentPin);
-	              HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
-	          }
-}
-void HandlePoint(int points[2],int placement,int* reduceTime){
-	points[placement]++;
-	if(points[placement]>=4){
-	  ShowPoints(points);
-	  points[0]=0;
-	  points[1]=0;
-	}else{
-		ShowPoints(points);
-	}
-	*reduceTime = 0;
-	Endgame();
-}
-void Endgame(void)
-{
-    for (int i = 0; i < 8; i++) {
-        GPIO_TypeDef *currentPort;
+void ResetAllLeds(int ledTotal) {
+    for (int i = 0; i < ledTotal; i++) {
+        GPIO_TypeDef *pCurrentPort;
         uint16_t currentPin;
-        GetLedConfig(i, &currentPort, &currentPin);
-        HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+        GetLedConfig(i, &pCurrentPort, &currentPin);
+        HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_RESET);
     }
+}
+
+void TurnOnAllLeds(int ledTotal) {
+    for (int i = 0; i < ledTotal; i++) {
+        GPIO_TypeDef *pCurrentPort;
+        uint16_t currentPin;
+        GetLedConfig(i, &pCurrentPort, &currentPin);
+        HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_SET);
+    }
+}
+
+void UpdatePlayerScore(int playerScores[2], int currentScore, int* pSpeedIncrease, bool* pWaitToStart) {
+    playerScores[currentScore]++;
+    if (playerScores[currentScore] >= 4) {
+        playerScores[0] = 0;
+        playerScores[1] = 0;
+        *pWaitToStart = true;
+    }
+    EndGame(playerScores);
+    *pSpeedIncrease = 0;
+}
+
+void EndGame(int playerScores[2]) {
+    for (int i = 0; i < 4; i++) {
+        TurnOnAllLeds(8);
+        HAL_Delay(500);
+        ResetAllLeds(8);
+        HAL_Delay(500);
+    }
+    ShowPlayerScores(playerScores);
+
     while (1) {
         if (HAL_GPIO_ReadPin(R_button_GPIO_Port, R_button_Pin) == GPIO_PIN_RESET ||
             HAL_GPIO_ReadPin(L_button_GPIO_Port, L_button_Pin) == GPIO_PIN_RESET) {
@@ -166,81 +174,78 @@ void Endgame(void)
     }
 }
 
-int isPressed(){
-	if (HAL_GPIO_ReadPin(R_button_GPIO_Port, R_button_Pin) == GPIO_PIN_RESET){
-		return 1;
-	}else if(HAL_GPIO_ReadPin(L_button_GPIO_Port, L_button_Pin) == GPIO_PIN_RESET){
-		return 2;
-	}
-	return 0;
+int CheckButtonPress() {
+    if (HAL_GPIO_ReadPin(R_button_GPIO_Port, R_button_Pin) == GPIO_PIN_RESET) {
+        return 1;
+    } else if (HAL_GPIO_ReadPin(L_button_GPIO_Port, L_button_Pin) == GPIO_PIN_RESET) {
+        return 2;
+    }
+    return 0;
 }
 
-int RunLedSequence(int ledCount, int delayTime, int reduceTime, bool forward) {
-	int checker=0;
-    if (forward) {
-        // Forward LED sequence
-        for (int i = 1; i < ledCount - 1; i++) {
-        	checker=isPressed();
-        	if(checker!=0 && i<ledCount-1){
-        		return checker;
-        	}
-            GPIO_TypeDef *currentPort;
+int ExecuteLedSequence(int ledTotal, int delayDuration, int speedIncrease, bool sequenceForward) {
+    int checkStatus = 0;
+    if (sequenceForward) {
+        for (int i = 1; i < ledTotal - 1; i++) {
+            checkStatus = CheckButtonPress();
+            if (checkStatus != 0 && i < ledTotal - 1) {
+                return checkStatus;
+            }
+            GPIO_TypeDef *pCurrentPort;
             uint16_t currentPin;
-            GetLedConfig(i, &currentPort, &currentPin);
-            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-            HAL_Delay(delayTime - reduceTime);
-            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
+            GetLedConfig(i, &pCurrentPort, &currentPin);
+            HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_SET);
+            HAL_Delay(delayDuration - speedIncrease);
+            HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_RESET);
         }
     } else {
-        // Reverse LED sequence
-        for (int i = ledCount - 2; i >= 1; i--) {
-        	checker=isPressed();
-        	if(checker!=0){
-        	  return checker;
-        	}
-            GPIO_TypeDef *currentPort;
+        for (int i = ledTotal - 2; i >= 1; i--) {
+            checkStatus = CheckButtonPress();
+            if (checkStatus != 0) {
+                return checkStatus;
+            }
+            GPIO_TypeDef *pCurrentPort;
             uint16_t currentPin;
-            GetLedConfig(i, &currentPort, &currentPin);
-            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-            HAL_Delay(delayTime - reduceTime);
-            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_RESET);
+            GetLedConfig(i, &pCurrentPort, &currentPin);
+            HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_SET);
+            HAL_Delay(delayDuration - speedIncrease);
+            HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_RESET);
         }
     }
     return 0;
 }
 
-void ShowPoints(int points[2])
-{
-    for (int i = 0; i < points[0]; i++) {
-        GPIO_TypeDef *currentPort;
+void ShowPlayerScores(int playerScores[2]) {
+    ResetAllLeds(8);
+    for (int i = 0; i < playerScores[0]; i++) {
+        GPIO_TypeDef *pCurrentPort;
         uint16_t currentPin;
-        GetLedConfig(i, &currentPort, &currentPin);
-        HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
+        GetLedConfig(i, &pCurrentPort, &currentPin);
+        HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_SET);
     }
-    for (int i = 8; i >= 8-points[1]; i--) {
-            GPIO_TypeDef *currentPort;
-            uint16_t currentPin;
-            GetLedConfig(i, &currentPort, &currentPin);
-            HAL_GPIO_WritePin(currentPort, currentPin, GPIO_PIN_SET);
-        }
-    HAL_Delay(2000);
+    for (int i = 7; i >= 8 - playerScores[1] && i >= 0; i--) {
+        GPIO_TypeDef *pCurrentPort;
+        uint16_t currentPin;
+        GetLedConfig(i, &pCurrentPort, &currentPin);
+        HAL_GPIO_WritePin(pCurrentPort, currentPin, GPIO_PIN_SET);
+    }
 }
 
-void GetLedConfig(int ledIndex, GPIO_TypeDef **port, uint16_t *pin)
+void GetLedConfig(int ledIndex, GPIO_TypeDef **pLedPort, uint16_t *pLedPin)
 {
-    switch (ledIndex)
-    {
-        case 0: *port = GPIOB; *pin = GPIO_PIN_1; break;
-        case 1: *port = GPIOB; *pin = GPIO_PIN_2; break;
-        case 2: *port = GPIOB; *pin = GPIO_PIN_11; break;
-        case 3: *port = GPIOB; *pin = GPIO_PIN_12; break;
-        case 4: *port = GPIOA; *pin = GPIO_PIN_11; break;
-        case 5: *port = GPIOA; *pin = GPIO_PIN_12; break;
-        case 6: *port = GPIOC; *pin = GPIO_PIN_5; break;
-        case 7: *port = GPIOC; *pin = GPIO_PIN_6; break;
-        default: *port = NULL; *pin = 0; break;
+    switch (ledIndex) {
+        case 0: *pLedPort = LED1_GPIO_Port; *pLedPin = LED1_Pin; break;
+        case 1: *pLedPort = LED2_GPIO_Port; *pLedPin = LED2_Pin; break;
+        case 2: *pLedPort = LED3_GPIO_Port; *pLedPin = LED3_Pin; break;
+        case 3: *pLedPort = LED4_GPIO_Port; *pLedPin = LED4_Pin; break;
+        case 4: *pLedPort = LED5_GPIO_Port; *pLedPin = LED5_Pin; break;
+        case 5: *pLedPort = LED6_GPIO_Port; *pLedPin = LED6_Pin; break;
+        case 6: *pLedPort = LED7_GPIO_Port; *pLedPin = LED7_Pin; break;
+        case 7: *pLedPort = LED8_GPIO_Port; *pLedPin = LED8_Pin; break;
+        default: *pLedPort = LED1_GPIO_Port; *pLedPin = LED1_Pin; break;
     }
 }
+
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
